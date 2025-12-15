@@ -64,7 +64,12 @@ public:
     {
         _timeout = ACK_TIMEOUT; // reset timeout to something small
         UHD_SAFE_CALL(
-            this->peek32(0); // dummy peek with the purpose of ack'ing all packets
+            try {
+                this->peek32(0); // dummy peek with the purpose of ack'ing all packets
+            } catch (const std::exception& ex) {
+                UHD_LOGGER_WARNING("radio_ctrl")
+                    << "Ignoring peek error during cleanup: " << ex.what();
+            }
             _async_task.reset(); // now its ok to release the task
         )
     }
@@ -258,7 +263,14 @@ private:
                 UHD_ASSERT_THROW(packet_info.has_sid);
                 UHD_ASSERT_THROW(
                     packet_info.sid == uint32_t((_sid >> 16) | (_sid << 16)));
-                UHD_ASSERT_THROW(packet_info.packet_count == (seq_to_ack & 0xfff));
+                const uint32_t expected_seq = (seq_to_ack & 0xfff);
+                if (packet_info.packet_count != expected_seq) {
+                    UHD_LOGGER_WARNING("radio_ctrl")
+                        << "Radio ctrl (" << _name
+                        << ") packet_count mismatch: got " << packet_info.packet_count
+                        << " expected " << expected_seq << ", ignoring packet.";
+                    continue; // Try next packet without throwing
+                }
                 UHD_ASSERT_THROW(packet_info.num_payload_words32 == 2);
                 UHD_ASSERT_THROW(packet_info.packet_type == _packet_type);
             } catch (const std::exception& ex) {
