@@ -241,7 +241,7 @@ private:
 
 public:
     gps_ctrl_impl(uart_iface::sptr uart, bool is_mp)
-        : _uart(uart), _is_mp(is_mp), _gps_type(GPS_TYPE_NONE)
+        : _is_mp(is_mp), _uart(uart), _gps_type(GPS_TYPE_NONE)
     {
         std::string reply;
         bool i_heard_some_nmea = false, i_heard_something_weird = false;
