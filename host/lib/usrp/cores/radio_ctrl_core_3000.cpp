@@ -185,8 +185,7 @@ private:
         while (readback or (_outstanding_seqs.size() >= _resp_queue_size)) {
             // get seq to ack from outstanding packets list
             UHD_ASSERT_THROW(not _outstanding_seqs.empty());
-            const size_t seq_to_ack = _outstanding_seqs.front();
-            _outstanding_seqs.pop();
+            size_t seq_to_ack = _outstanding_seqs.front();
 
             // parse the packet
             vrt::if_packet_info_t packet_info;
@@ -263,13 +262,24 @@ private:
                 UHD_ASSERT_THROW(packet_info.has_sid);
                 UHD_ASSERT_THROW(
                     packet_info.sid == uint32_t((_sid >> 16) | (_sid << 16)));
-                const uint32_t expected_seq = (seq_to_ack & 0xfff);
-                if (packet_info.packet_count != expected_seq) {
+                uint32_t expected_seq = (seq_to_ack & 0xfff);
+                // Attempt to re-sync if we see reordered/lost control acks.
+                while (packet_info.packet_count != expected_seq
+                       && not _outstanding_seqs.empty()) {
                     UHD_LOGGER_WARNING("radio_ctrl")
                         << "Radio ctrl (" << _name
                         << ") packet_count mismatch: got " << packet_info.packet_count
-                        << " expected " << expected_seq << ", ignoring packet.";
-                    continue; // Try next packet without throwing
+                        << " expected " << expected_seq << ", dropping outstanding seq"
+                        << " to resync.";
+                    _outstanding_seqs.pop();
+                    if (_outstanding_seqs.empty())
+                        break;
+                    seq_to_ack   = _outstanding_seqs.front();
+                    expected_seq = (seq_to_ack & 0xfff);
+                }
+                // If we ran out of outstanding seqs, skip this packet and try again.
+                if (_outstanding_seqs.empty()) {
+                    continue;
                 }
                 UHD_ASSERT_THROW(packet_info.num_payload_words32 == 2);
                 UHD_ASSERT_THROW(packet_info.packet_type == _packet_type);
@@ -278,6 +288,9 @@ private:
                     str(boost::format("Radio ctrl (%s) packet parse error - %s") % _name
                         % ex.what()));
             }
+
+            // only drop the sequence after we have accepted the packet
+            _outstanding_seqs.pop();
 
             // return the readback value
             if (readback and _outstanding_seqs.empty()) {
